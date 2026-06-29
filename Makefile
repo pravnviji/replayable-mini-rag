@@ -18,6 +18,7 @@ help:
 	@echo "  make run       Run the full pipeline (interactive human review)"
 	@echo "  make run-auto  Run the full pipeline non-interactively (no overrides)"
 	@echo "  make validate  Validate generated artifacts against all requirements"
+	@echo "  make ui        Serve the local browser test UI (http://localhost:8000)"
 	@echo "  make test      Run unit tests (pytest)"
 	@echo "  make clean     Delete generated artifacts"
 	@echo "  make distclean Delete artifacts and the virtualenv"
@@ -45,6 +46,11 @@ run-auto:
 .PHONY: validate
 validate:
 	$(PY) validate.py
+
+.PHONY: ui
+ui:
+	$(PY) serve.py --port $(PORT)
+PORT ?= 8000
 
 .PHONY: test
 test:

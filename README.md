@@ -208,6 +208,45 @@ audit ran after human review, overrides were saved and applied to audit inputs,
 the report reflects the final (post-override) context, and `llm_calls.jsonl`
 contains separate records for the required stages.
 
+## Testing & coverage
+
+```bash
+make test                                   # run the unit suite
+.venv/bin/python -m pytest --cov=src/minirag --cov=run --cov=validate \
+    --cov-report=term-missing               # with a coverage report
+```
+
+The suite has **97 tests** across every module and runs fully offline — the
+Ollama client is replaced by a deterministic `fake_ollama` fixture
+(`tests/conftest.py`), so no model download or running server is required. It
+includes a full pipeline integration test (`INIT → RESULTS_FINALISED` on
+temporary fixtures) plus `validate.py` happy-path and failure-injection tests.
+
+Latest run: **97 passed, 93% line coverage** (`pytest-cov`).
+
+| Module | Coverage | Tested by |
+|---|---|---|
+| `schemas.py` | 100% | `test_schemas.py` |
+| `paths.py` | 100% | `test_paths.py` |
+| `indexing.py` | 100% | `test_indexing.py` |
+| `prompts.py` | 100% | `test_prompts.py` |
+| `audit.py` | 100% | `test_audit.py` |
+| `pipeline.py` | 99% | `test_pipeline.py` |
+| `generate.py` | 97% | `test_generate_validation.py` |
+| `retrieval.py` | 97% | `test_retrieval.py`, `test_retrieval_embedding.py` |
+| `review.py` | 96% | `test_review.py` |
+| `report.py` | 95% | `test_report.py` |
+| `metrics.py` | 95% | `test_metrics.py` |
+| `revise.py` | 95% | `test_revise.py` |
+| `run.py` | 95% | `test_run_cli.py` |
+| `io_utils.py` | 94% | `test_io_utils.py` |
+| `chunking.py` | 92% | `test_chunking.py` |
+| `error_analysis.py` | 92% | `test_error_analysis.py` |
+| `state.py` | 89% | `test_state.py` |
+| `llm.py` | 85% | `test_llm.py` |
+| `validate.py` | 81% | `test_validate.py` |
+| **Total** | **93%** | 97 tests |
+
 ## Determinism notes
 
 Chunking and retrieval are fully deterministic in code (stable IDs, fixed
