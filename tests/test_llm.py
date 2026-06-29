@@ -94,7 +94,51 @@ def test_embed_texts_returns_vectors(fake_ollama):
     vectors = llm.embed_texts(["alpha", "beta"], model="embed-model")
     assert len(vectors) == 2
     assert all(len(v) == fake_ollama.embed_dim for v in vectors)
+    # Fake client has no batched ``embed``; falls back to per-text ``embeddings``.
     assert len(fake_ollama.embed_calls) == 2
+
+
+def test_embed_texts_uses_single_batched_call_when_available(monkeypatch):
+    class BatchClient:
+        def __init__(self):
+            self.embed_calls = []
+
+        def embed(self, *, model, input):
+            self.embed_calls.append({"model": model, "input": input})
+            return {"embeddings": [[1.0, 2.0] for _ in input]}
+
+    client = BatchClient()
+    monkeypatch.setattr(llm, "_client", lambda host=None: client)
+    vectors = llm.embed_texts(["a", "b", "c"], model="embed-model")
+    assert vectors == [[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]]
+    assert len(client.embed_calls) == 1  # one round-trip for the whole batch
+
+
+def test_embed_texts_falls_back_when_batch_fails(monkeypatch):
+    class FlakyBatchClient:
+        def __init__(self):
+            self.embeddings_calls = []
+
+        def embed(self, *, model, input):
+            raise RuntimeError("batch endpoint unavailable")
+
+        def embeddings(self, *, model, prompt):
+            self.embeddings_calls.append(prompt)
+            return {"embedding": [0.0, 1.0]}
+
+    client = FlakyBatchClient()
+    monkeypatch.setattr(llm, "_client", lambda host=None: client)
+    vectors = llm.embed_texts(["a", "b"], model="embed-model")
+    assert vectors == [[0.0, 1.0], [0.0, 1.0]]
+    assert client.embeddings_calls == ["a", "b"]
+
+
+def test_embed_texts_empty_returns_empty(monkeypatch):
+    def _boom(host=None):
+        raise AssertionError("client should not be constructed for empty input")
+
+    monkeypatch.setattr(llm, "_client", _boom)
+    assert llm.embed_texts([], model="embed-model") == []
 
 
 def test_default_model_env_override(monkeypatch):

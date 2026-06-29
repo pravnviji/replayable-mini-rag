@@ -215,6 +215,50 @@ windows, deterministic tie-breaking). LLM calls use `temperature=0, seed=42,
 top_k=1, top_p=1` and a large context window for **best-effort** reproducibility;
 exact token-level determinism across hardware is not guaranteed by Ollama.
 
+## Security & performance
+
+The pipeline treats the corpus and query set as **untrusted input** and bounds
+the work it does on them. The following hardening is built in:
+
+### Security
+
+- **Prompt-injection resistance.** Document and question text is interpolated
+  into LLM prompts, so it is treated as *data, not instructions*. The
+  generation, audit, and revision system prompts (`src/minirag/prompts.py`)
+  carry an explicit guardrail telling the model to ignore any embedded
+  instructions that try to change its task, output schema, allowed labels, or
+  policy, and every context chunk is wrapped in `BEGIN/END chunk_id` markers so
+  corpus content is clearly delimited from developer instructions. This reduces
+  (but, as with any RAG system, cannot fully eliminate) injection risk.
+- **Bounded corpus ingestion (memory-DoS guard).** Chunking enforces a
+  per-document size cap so a single oversized or malicious `.txt` cannot exhaust
+  memory. The default is 10 MiB; override it with the `MINIRAG_MAX_DOC_BYTES`
+  environment variable (`0` disables the check):
+
+  ```bash
+  MINIRAG_MAX_DOC_BYTES=52428800 make run-auto   # allow up to 50 MiB per doc
+  ```
+- **Output discipline.** Structured LLM output is constrained to a pydantic JSON
+  schema, labels are coerced to `policy.allowed_labels`, and citations are
+  filtered to the chunks actually in scope — fabricated labels/citations from the
+  model are dropped rather than trusted.
+- **No dynamic execution.** No `eval`/`exec`/`subprocess`/`pickle`/`yaml.load`;
+  all artifact writes are atomic (temp file + `os.replace`) so a crash never
+  leaves a half-written file that could fool the validator.
+
+### Performance
+
+- **Cached BM25 IDF.** Inverse document frequency is precomputed once per term at
+  index-build time instead of being recomputed (with its `math.log`) for every
+  `(document, query-term)` pair at score time. Ranking output is byte-for-byte
+  unchanged; only redundant work is removed.
+- **Batched embeddings.** In `embedding` mode the corpus is embedded in a single
+  batched request when the Ollama client supports it, instead of one HTTP
+  round-trip per chunk, with a graceful fallback to the per-text endpoint for
+  older clients. Retrieval stays deterministic.
+
+These behaviours are covered by the unit tests in `tests/` (`make test`).
+
 ## Project layout
 
 ```
@@ -234,6 +278,7 @@ replayable-mini-rag/
     indexing.py              # index metadata
     retrieval.py             # BM25 + embedding retrieval
     llm.py                   # Ollama wrapper + llm_calls.jsonl logging
+    prompts.py               # prompt construction + injection guardrails
     generate.py              # Stage 1 draft answers
     review.py                # human review checkpoint
     audit.py                 # Stage 2 audit
@@ -244,7 +289,4 @@ replayable-mini-rag/
     pipeline.py              # orchestration
   tests/                     # pytest unit tests
 ```
-
-
-### Ouput
 

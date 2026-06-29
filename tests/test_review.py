@@ -73,3 +73,64 @@ def test_review_input_rejects_unknown_chunk(tmp_path: Path):
             retrievals, drafts, chunks,
             out_path=tmp_path / "ov.json", review_input=review_file,
         )
+
+
+def _fake_input(responses):
+    it = iter(responses)
+
+    def _inner(_prompt=""):
+        try:
+            return next(it)
+        except StopIteration:
+            return ""
+
+    return _inner
+
+
+def test_interactive_override_applied(tmp_path: Path, monkeypatch):
+    chunks, retrievals, drafts = _fixture()
+    # Force interactive path: pretend we have a TTY and feed input lines.
+    monkeypatch.setattr(review.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        "builtins.input",
+        _fake_input(["Q1 b-0000", ""]),  # override Q1 then continue
+    )
+    overrides = review.run_review(
+        retrievals, drafts, chunks, out_path=tmp_path / "ov.json"
+    )
+    ctx = review.final_context_map(overrides)
+    assert ctx["Q1"] == ["b-0000"]
+    q1 = next(o for o in overrides if o.query_id == "Q1")
+    assert q1.overridden is True
+
+
+def test_interactive_handles_invalid_then_valid(tmp_path: Path, monkeypatch, capsys):
+    chunks, retrievals, drafts = _fixture()
+    monkeypatch.setattr(review.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        "builtins.input",
+        _fake_input([
+            "garbage",            # invalid format
+            "ZZ a-0000",          # unknown query id
+            "Q2 nope-9999",       # unknown chunk id
+            "Q2 a-0000",          # valid override
+            "",                   # continue
+        ]),
+    )
+    overrides = review.run_review(
+        retrievals, drafts, chunks, out_path=tmp_path / "ov.json"
+    )
+    out = capsys.readouterr().out
+    assert "Invalid format" in out
+    assert "Unknown query_id" in out
+    ctx = review.final_context_map(overrides)
+    assert ctx["Q2"] == ["a-0000"]
+
+
+def test_non_tty_continues_without_override(tmp_path: Path, monkeypatch):
+    chunks, retrievals, drafts = _fixture()
+    monkeypatch.setattr(review.sys.stdin, "isatty", lambda: False)
+    overrides = review.run_review(
+        retrievals, drafts, chunks, out_path=tmp_path / "ov.json"
+    )
+    assert all(o.overridden is False for o in overrides)

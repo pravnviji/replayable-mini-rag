@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mini RAG · Test UI</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1e222b; --line: #2a2f3a;
+    --text: #e6e9ef; --muted: #9aa3b2; --accent: #5b9dff; --accent-2: #7c5bff;
+    --good: #34d399; --warn: #fbbf24; --bad: #f87171; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 28px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #181c24, #12151b);
+    display: flex; align-items: center; gap: 14px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 22px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .tab {
+    padding: 9px 16px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--muted); border-radius: 10px; cursor: pointer; font-weight: 550;
+  }
+  .tab.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  input[type=text], select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; padding: 11px 13px; font-size: 15px; outline: none;
+  }
+  input[type=text] { flex: 1; min-width: 240px; }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  button.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white;
+    border: 0; border-radius: 10px; padding: 11px 20px; font-weight: 650; cursor: pointer; font-size: 15px;
+  }
+  button.primary:disabled { opacity: .55; cursor: default; }
+  .examples { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 12.5px; color: var(--muted); border: 1px dashed var(--line); padding: 5px 10px; border-radius: 999px; cursor: pointer; }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+  .label { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+  .label.supported { background: rgba(52,211,153,.15); color: var(--good); }
+  .label.partially_supported { background: rgba(251,191,36,.15); color: var(--warn); }
+  .label.unsupported { background: rgba(248,113,113,.15); color: var(--bad); }
+  .label.pass { background: rgba(52,211,153,.15); color: var(--good); }
+  .label.fail { background: rgba(248,113,113,.15); color: var(--bad); }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .hit { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 10px; background: var(--panel-2); }
+  .hit .meta { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .score { font-family: var(--mono); color: var(--accent); }
+  .answer { white-space: pre-wrap; }
+  .pill { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; }
+  .note { color: var(--warn); font-size: 13px; margin-top: 8px; }
+  .err { color: var(--bad); }
+  h3.section { margin: 4px 0 12px; font-size: 15px; }
+  pre.report {
+    white-space: pre-wrap; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px; font-family: var(--mono); font-size: 12.5px; max-height: 520px; overflow: auto;
+  }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; vertical-align: -3px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span>
+  <h1>Mini RAG</h1>
+  <span class="sub">local test console</span>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-tab="ask">Ask</div>
+    <div class="tab" data-tab="artifacts">Last run artifacts</div>
+  </div>
+
+  <!-- ASK TAB -->
+  <section id="tab-ask">
+    <div class="card">
+      <div class="row">
+        <input id="q" type="text" placeholder="Ask a question about the corpus…" />
+        <select id="mode" title="retrieval mode">
+          <option value="keyword">keyword (BM25)</option>
+          <option value="embedding">embedding (Ollama)</option>
+        </select>
+        <select id="topk" title="top-k">
+          <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
+        </select>
+        <button id="go" class="primary">Ask</button>
+      </div>
+      <div class="examples" id="examples"></div>
+    </div>
+    <div id="result"></div>
+  </section>
+
+  <!-- ARTIFACTS TAB -->
+  <section id="tab-artifacts" style="display:none">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div><strong>Artifacts</strong> <span class="muted" id="artmeta"></span></div>
+        <button id="reload" class="primary">Reload</button>
+      </div>
+    </div>
+    <div id="artifacts"></div>
+  </section>
+</div>
+
+<script>
+const EXAMPLES = [
+  "How long is event data retained on the standard plan?",
+  "Does the product support SCIM provisioning?",
+  "Can customers get refunds for unused days in a month?",
+  "Is the service HIPAA compliant?",
+];
+
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+// Tabs
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  const tab = t.dataset.tab;
+  $("#tab-ask").style.display = tab === "ask" ? "" : "none";
+  $("#tab-artifacts").style.display = tab === "artifacts" ? "" : "none";
+  if (tab === "artifacts") loadArtifacts();
+}));
+
+// Example chips
+const exWrap = $("#examples");
+EXAMPLES.forEach(x => {
+  const c = el("span", "chip", esc(x));
+  c.addEventListener("click", () => { $("#q").value = x; ask(); });
+  exWrap.appendChild(c);
+});
+
+function labelTag(text) {
+  const v = (text || "").toLowerCase().replace(/[^a-z_]/g, "");
+  return `<span class="label ${v}">${esc(text)}</span>`;
+}
+
+async function ask() {
+  const question = $("#q").value.trim();
+  if (!question) return;
+  const out = $("#result");
+  $("#go").disabled = true;
+  out.innerHTML = `<div class="card"><span class="spinner"></span> &nbsp;Retrieving & generating…</div>`;
+  try {
+    const res = await fetch("/api/query", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, mode: $("#mode").value, top_k: Number($("#topk").value) }),
+    });
+    const data = await res.json();
+    renderResult(data);
+  } catch (e) {
+    out.innerHTML = `<div class="card err">Request failed: ${esc(e.message)}</div>`;
+  } finally {
+    $("#go").disabled = false;
+  }
+}
+
+function renderResult(data) {
+  const out = $("#result");
+  out.innerHTML = "";
+  if (data.error) { out.appendChild(el("div", "card err", `Error: ${esc(data.error)}`)); return; }
+
+  // Draft answer card
+  const ans = el("div", "card");
+  if (data.draft) {
+    ans.appendChild(el("h3", "section", "Draft answer " + labelTag(data.draft.label)));
+    ans.appendChild(el("div", "answer", esc(data.draft.answer)));
+    const cites = (data.draft.citations || []).map(c => `<span class="pill">${esc(c)}</span>`).join(" ") || '<span class="muted">none</span>';
+    ans.appendChild(el("div", null, `<div style="margin-top:10px" class="muted">Citations:</div>${cites}`));
+    if (data.draft.reasoning_summary)
+      ans.appendChild(el("div", "muted", `<div style="margin-top:10px">Reasoning: ${esc(data.draft.reasoning_summary)}</div>`));
+  } else {
+    ans.appendChild(el("h3", "section", "Retrieval only"));
+    ans.appendChild(el("div", "note", esc(data.llm_note || "LLM draft not available.")));
+  }
+  out.appendChild(ans);
+
+  // Retrieved chunks
+  const r = el("div", "card");
+  r.appendChild(el("h3", "section", `Retrieved chunks · <span class="muted">${esc(data.mode)} · top ${data.top_k}</span>`));
+  if (!data.retrieved || !data.retrieved.length) {
+    r.appendChild(el("div", "muted", "No chunks retrieved."));
+  } else {
+    data.retrieved.forEach(h => {
+      const hit = el("div", "hit");
+      hit.appendChild(el("div", "meta",
+        `<span><span class="pill">#${h.rank}</span> <span class="mono">${esc(h.chunk_id)}</span> <span class="muted">${esc(h.document_name)}</span></span>` +
+        `<span class="score">${Number(h.retrieval_score).toFixed(4)}</span>`));
+      hit.appendChild(el("div", "muted", esc(h.text)));
+      r.appendChild(hit);
+    });
+  }
+  out.appendChild(r);
+}
+
+$("#go").addEventListener("click", ask);
+$("#q").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+$("#reload").addEventListener("click", loadArtifacts);
+
+async function loadArtifacts() {
+  const box = $("#artifacts");
+  box.innerHTML = `<div class="card"><span class="spinner"></span> &nbsp;Loading artifacts…</div>`;
+  try {
+    const data = await (await fetch("/api/artifacts")).json();
+    renderArtifacts(data);
+  } catch (e) {
+    box.innerHTML = `<div class="card err">Failed to load artifacts: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderArtifacts(data) {
+  const box = $("#artifacts");
+  box.innerHTML = "";
+  $("#artmeta").textContent = data.present && data.present.length
+    ? `· ${data.out_dir} · ${data.present.length} files`
+    : `· none found in ${data.out_dir} (run the pipeline first)`;
+
+  if (!data.present || !data.present.length) {
+    box.appendChild(el("div", "card muted", "No artifacts yet. Run <span class='mono'>python run.py --auto-continue</span> to generate them."));
+    return;
+  }
+
+  // Per-query consolidated view
+  const drafts = indexBy(data.draft_answers, "query_id");
+  const audits = indexBy(data.answer_audit, "query_id");
+  const revised = indexBy(data.revised_answers, "query_id");
+  const retr = indexBy(data.retrieval_results, "query_id");
+
+  const qids = Object.keys(retr).length ? Object.keys(retr) : Object.keys(drafts);
+  if (qids.length) {
+    const head = el("div", "card");
+    head.appendChild(el("h3", "section", "Query-by-query"));
+    box.appendChild(head);
+    qids.forEach(qid => {
+      const d = drafts[qid], a = audits[qid], rv = revised[qid], rr = retr[qid];
+      const c = el("div", "card");
+      c.appendChild(el("div", null, `<strong>${esc(qid)}</strong> <span class="muted">${esc(rr ? rr.question : "")}</span>`));
+      const tags = [];
+      if (d) tags.push("draft " + labelTag(d.label));
+      if (a) tags.push("audit " + labelTag(a.audit_label) + ` <span class="muted">risk ${esc(a.hallucination_risk)}</span>`);
+      c.appendChild(el("div", null, `<div style="margin:8px 0">${tags.join(" &nbsp; ")}</div>`));
+      if (d) c.appendChild(el("div", "answer", esc(d.answer)));
+      if (rv) c.appendChild(el("div", "note", `Revised (${esc(rv.label)}): ${esc(rv.answer)}`));
+      if (rr && rr.retrieved_chunks) {
+        const ids = rr.retrieved_chunks.map(x => `<span class="pill">${esc(x.chunk_id)}</span>`).join(" ");
+        c.appendChild(el("div", null, `<div style="margin-top:10px" class="muted">Retrieved:</div>${ids}`));
+      }
+      box.appendChild(c);
+    });
+  }
+
+  // Final report
+  if (data.final_report) {
+    const c = el("div", "card");
+    c.appendChild(el("h3", "section", "final_report.md"));
+    c.appendChild(el("pre", "report", esc(data.final_report)));
+    box.appendChild(c);
+  }
+
+  // Raw JSON peek
+  const raw = el("div", "card");
+  raw.appendChild(el("h3", "section", "Raw artifacts"));
+  const grid = el("div", "grid");
+  ["index_metadata", "retrieval_metrics", "review_overrides", "retrieval_error_analysis", "pipeline_state"].forEach(k => {
+    if (!data[k]) return;
+    const d = el("details");
+    d.appendChild(el("summary", "mono", k));
+    d.appendChild(el("pre", "report", esc(JSON.stringify(data[k], null, 2))));
+    grid.appendChild(d);
+  });
+  raw.appendChild(grid);
+  box.appendChild(raw);
+}
+
+function indexBy(arr, key) {
+  const out = {};
+  (Array.isArray(arr) ? arr : []).forEach(x => { if (x && x[key] != null) out[x[key]] = x; });
+  return out;
+}
+
+$("#q").focus();
+</script>
+</body>
+</html>
