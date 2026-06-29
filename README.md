@@ -34,6 +34,7 @@ Retrieval defaults to a deterministic in-code **BM25** ranker, with an
 make setup        # venv + deps + ollama pull (LLM + embedding models)
 make run          # full pipeline, interactive human-review checkpoint
 make validate     # check all artifacts against the requirements
+make ui           # browser test console at http://localhost:8000
 ```
 
 For automation / CI (non-interactive, no overrides):
@@ -194,6 +195,89 @@ VALIDATION PASSED
 > regenerates more conservative answers. A larger model (e.g. `llama3.1:8b`)
 > yields better answer content with identical pipeline behaviour.
 
+## Browser test UI
+
+A small, **dependency-free** web console (Python standard-library `http.server`
+only — no Flask/FastAPI) is included so you can exercise the system in a browser
+instead of reading raw JSON. It reuses the exact same `minirag` modules the
+pipeline does, so what you see in the UI is the real retrieval and generation
+code path.
+
+### Start it
+
+```bash
+make ui                              # serves http://localhost:8000
+# or, directly, with options:
+python serve.py --port 8000 --documents documents --policy policy.json --out artifacts
+```
+
+Then open **http://localhost:8000**. The server binds to loopback
+(`127.0.0.1`) by default; pass `--host 0.0.0.0` to expose it on your LAN.
+
+The UI has two tabs.
+
+### 1. Ask — run an ad-hoc query live
+
+Type any question (or click one of the example chips), choose the retrieval
+**mode** (`keyword` BM25 or `embedding`) and **top-k**, then press **Ask**. The
+page calls `POST /api/query`, which runs real BM25/embedding retrieval and then
+an LLM **draft answer** grounded only in the retrieved chunks. The answer is
+shown with its colour-coded label (`supported` / `partially_supported` /
+`unsupported`), its citations, the model's reasoning summary, and the ranked
+retrieved chunks with their scores.
+
+![Ask tab — retention question with a grounded, supported draft answer](output-sceenshot/ui_ask_retention.png)
+
+Because answers are constrained to the corpus, an out-of-scope or unsupported
+question is surfaced honestly rather than hallucinated. Here the corpus only
+states the service is *not described* as HIPAA compliant, so the answer stays
+conservative and cites the security chunk:
+
+![Ask tab — HIPAA question handled conservatively with citations](output-sceenshot/ui_ask_hipaa.png)
+
+Every result also shows the underlying ranked evidence, so you can see *why* an
+answer was produced — the retrieved chunks, their source documents, and BM25
+scores:
+
+![Retrieved chunks with BM25 scores and source documents](output-sceenshot/ui_retrieval_chunks.png)
+
+> If Ollama is not running or the model isn't pulled, the **Ask** tab degrades
+> gracefully: it still shows retrieval results and displays a clear note that the
+> LLM draft is unavailable — so retrieval can be tested with zero model setup.
+
+### 2. Last run artifacts — inspect the saved pipeline output
+
+The second tab calls `GET /api/artifacts` and renders the artifacts from your
+most recent `make run` / `make run-auto` into a consolidated, query-by-query
+view: the draft label, the Stage-2 audit label and hallucination risk, any
+conservative **revised** answer, and the final-context chunk IDs — plus the full
+`final_report.md` and collapsible raw JSON for the metadata, metrics, overrides,
+error-analysis, and stage-transition log.
+
+![Last run artifacts — consolidated query-by-query view](output-sceenshot/ui_artifacts.png)
+
+This makes the audit/revision loop easy to see: a weak draft (e.g. Q1 audited
+`fail`, risk `high`) is automatically regenerated into a conservative revised
+answer grounded in the corpus.
+
+> Run the pipeline at least once (`make run-auto`) before opening this tab,
+> otherwise it will report that no artifacts were found yet.
+
+### Endpoints (for reference / scripting)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/` | the single-page UI (`web/index.html`) |
+| `GET`  | `/api/artifacts` | JSON view of artifacts from the last run |
+| `POST` | `/api/query` | `{ "question", "mode", "top_k" }` → live retrieval (+ draft) |
+
+```bash
+# Example: drive the retrieval API from the shell
+curl -s -X POST http://localhost:8000/api/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How long is event data retained on the standard plan?","mode":"keyword","top_k":3}'
+```
+
 ## Validation
 
 ```bash
@@ -307,8 +391,11 @@ replayable-mini-rag/
   policy.json                # retrieval + answer policy
   run.py                     # pipeline entry point
   validate.py                # validation gate
+  serve.py                   # local browser test UI (stdlib http.server)
+  web/index.html             # single-page UI served by serve.py
   Makefile
   requirements.txt
+  pyproject.toml             # project metadata + pytest config
   src/minirag/
     state.py                 # stage state machine
     io_utils.py              # disk IO, atomic writes, prompt hashing
