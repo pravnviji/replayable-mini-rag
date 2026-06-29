@@ -202,5 +202,3 @@ replayable-mini-rag/
   tests/                     # pytest unit tests
 ```
 
-### Ouput
-/Users/praveen.babu/Downloads/replayable-mini-rag/docs/sample_run.png
