@@ -245,6 +245,46 @@ scores:
 > gracefully: it still shows retrieval results and displays a clear note that the
 > LLM draft is unavailable — so retrieval can be tested with zero model setup.
 
+#### Choosing the retrieval mode: Keyword (BM25) vs Embedding (Ollama)
+
+The **mode** dropdown lets you switch the retriever per query and compare results
+side by side. Both modes are deterministic for the same inputs and config.
+
+In `embedding` mode the dropdown reads **"embedding (Ollama)"** and the chunk
+scores become cosine similarities (note the different score scale vs BM25):
+
+![Ask tab in embedding (Ollama) mode — cosine-similarity scores](output-sceenshot/ui_ask_embedding.png)
+
+| | **Keyword (BM25)** | **Embedding (Ollama)** |
+|---|---|---|
+| How it ranks | exact term overlap (TF-IDF/BM25) | semantic similarity of vectors |
+| Score meaning | unbounded BM25 score (higher = better) | cosine similarity, ~0–1 |
+| Dependencies | none — pure Python, always available | requires Ollama + `nomic-embed-text` pulled |
+| Speed | instant | first query embeds the whole corpus (then cached) |
+| Best for | keyword-heavy / exact-wording questions | paraphrased questions, synonyms, fuzzy wording |
+| Determinism | fully deterministic in code | deterministic per model (vectors are fixed) |
+| Setup | works out of the box | `ollama pull nomic-embed-text` |
+
+**Which to pick?**
+
+- Start with **Keyword (BM25)** — it is the default, needs no model, and is
+  excellent when the question shares wording with the corpus (e.g. *"How long is
+  event data **retained** on the **standard plan**?"* directly matches the source
+  sentence).
+- Switch to **Embedding (Ollama)** when questions are **paraphrased** or use
+  **synonyms** the corpus does not contain verbatim — semantic vectors can still
+  surface the right chunk where keyword overlap is weak. The trade-off is the
+  extra dependency (`nomic-embed-text`) and a one-time corpus-embedding cost.
+
+> Enabling embedding mode requires the embedding model:
+> `ollama pull nomic-embed-text` (also done automatically by `make setup`).
+> Without it the **Ask** tab shows a clear *"model not found"* note instead of
+> failing silently.
+
+You can also set the mode for the whole pipeline in `policy.json`
+(`"retrieval": { "mode": "embedding" }`) or per run on the CLI
+(`python run.py --mode embedding`).
+
 ### 2. Last run artifacts — inspect the saved pipeline output
 
 The second tab calls `GET /api/artifacts` and renders the artifacts from your
