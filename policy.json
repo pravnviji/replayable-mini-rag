@@ -1,0 +1,20 @@
+{
+  "retrieval": {
+    "mode": "keyword",
+    "top_k": 3,
+    "chunk_size_chars": 480,
+    "chunk_overlap_chars": 80
+  },
+  "allowed_labels": ["supported", "partially_supported", "unsupported"],
+  "citation_required": true,
+  "forbidden_behaviours": [
+    "Do not present outside knowledge as a corpus-grounded fact.",
+    "Do not cite chunks that were not provided as context for this query.",
+    "Do not claim the corpus supports an answer when the context is silent, partial, or ambiguous.",
+    "Do not fabricate document names, chunk identifiers, numbers, or policy details."
+  ],
+  "generation": {
+    "provider": "ollama",
+    "model": "llama3.1:8b"
+  }
+}
