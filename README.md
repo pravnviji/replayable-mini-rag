@@ -201,3 +201,6 @@ replayable-mini-rag/
     pipeline.py              # orchestration
   tests/                     # pytest unit tests
 ```
+
+### Ouput
+/Users/praveen.babu/Downloads/replayable-mini-rag/docs/sample_run.png
