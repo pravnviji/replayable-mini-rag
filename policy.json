@@ -15,6 +15,6 @@
   ],
   "generation": {
     "provider": "ollama",
-    "model": "llama3.1:8b"
+    "model": "llama3.2:1b"
   }
 }

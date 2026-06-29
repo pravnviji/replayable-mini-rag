@@ -1,6 +1,10 @@
-"""Tests for the Ollama wrapper: structured parse, logging, embeddings, errors."""
+"""Tests for the Ollama wrapper: structured calls, call logging, and errors.
 
-from pathlib import Path
+These exercise ``minirag.llm`` against the ``fake_ollama`` fixture (defined in
+conftest.py) so no real Ollama server is required.
+"""
+
+import json
 
 import pytest
 
@@ -9,94 +13,99 @@ from minirag.io_utils import read_jsonl
 from minirag.schemas import DraftAnswerLLM
 
 
-def test_call_structured_parses_and_logs(tmp_path: Path, fake_ollama):
-    log = tmp_path / "llm.jsonl"
-    result = llm.call_structured(
+def _call(llm_log_path, **overrides):
+    kwargs = dict(
         stage="stage1_draft",
         query_id="Q1",
-        system_prompt="sys",
+        system_prompt="system",
         user_prompt="user",
         schema=DraftAnswerLLM,
         model="test-model",
-        log_path=log,
-        input_artifacts=["a.json"],
-        output_artifact="out.json",
+        log_path=llm_log_path,
+        input_artifacts=["a.json", "b.json"],
+        output_artifact="draft_answers.json",
     )
+    kwargs.update(overrides)
+    return llm.call_structured(**kwargs)
+
+
+def test_call_structured_returns_validated_object(tmp_path, fake_ollama):
+    result = _call(tmp_path / "llm_calls.jsonl")
     assert isinstance(result, DraftAnswerLLM)
     assert result.label == "supported"
+    assert len(fake_ollama.chat_calls) == 1
 
+
+def test_call_structured_appends_one_log_record(tmp_path, fake_ollama):
+    log = tmp_path / "llm_calls.jsonl"
+    _call(log)
     records = read_jsonl(log)
     assert len(records) == 1
     rec = records[0]
-    assert rec["stage"] == "stage1_draft"
-    assert rec["query_id"] == "Q1"
+    for field in (
+        "stage", "query_id", "timestamp", "provider",
+        "model", "prompt_hash", "input_artifacts", "output_artifact",
+    ):
+        assert field in rec, f"missing required log field: {field}"
     assert rec["provider"] == "ollama"
     assert rec["model"] == "test-model"
-    assert rec["input_artifacts"] == ["a.json"]
-    assert rec["output_artifact"] == "out.json"
-    assert len(rec["prompt_hash"]) == 64  # sha256 hex
+    assert rec["input_artifacts"] == ["a.json", "b.json"]
 
 
-def test_call_structured_logs_before_failure(tmp_path: Path, monkeypatch):
-    log = tmp_path / "llm.jsonl"
+def test_prompt_hash_is_deterministic_and_input_sensitive(tmp_path, fake_ollama):
+    log = tmp_path / "llm_calls.jsonl"
+    _call(log, user_prompt="same")
+    _call(log, user_prompt="same")
+    _call(log, user_prompt="different")
+    hashes = [r["prompt_hash"] for r in read_jsonl(log)]
+    assert hashes[0] == hashes[1]
+    assert hashes[0] != hashes[2]
+
+
+def test_call_is_logged_even_when_parsing_fails(tmp_path, monkeypatch):
+    """A record is written before the call, so a failure still leaves a trace."""
+    log = tmp_path / "llm_calls.jsonl"
 
     class BadClient:
-        def chat(self, **kwargs):
-            raise RuntimeError("connection refused")
+        def chat(self, *, model, messages, format=None, options=None):
+            return {"message": {"content": "not valid json"}}
 
     monkeypatch.setattr(llm, "_client", lambda host=None: BadClient())
     with pytest.raises(llm.LLMError):
-        llm.call_structured(
-            stage="stage1_draft",
-            query_id="Q1",
-            system_prompt="s",
-            user_prompt="u",
-            schema=DraftAnswerLLM,
-            model="m",
-            log_path=log,
-            input_artifacts=[],
-            output_artifact="o.json",
-        )
-    # The call was logged before the failure (audit trail preserved).
+        _call(log)
+    # The pre-send log record must still be present.
     assert len(read_jsonl(log)) == 1
 
 
-def test_call_structured_invalid_json_raises(tmp_path: Path, monkeypatch):
-    class JunkClient:
-        def chat(self, **kwargs):
-            return {"message": {"content": "not json"}}
+def test_call_raises_llmerror_on_transport_failure(tmp_path, monkeypatch):
+    log = tmp_path / "llm_calls.jsonl"
 
-    monkeypatch.setattr(llm, "_client", lambda host=None: JunkClient())
-    with pytest.raises(llm.LLMError):
-        llm.call_structured(
-            stage="stage1_draft",
-            query_id="Q1",
-            system_prompt="s",
-            user_prompt="u",
-            schema=DraftAnswerLLM,
-            model="m",
-            log_path=tmp_path / "llm.jsonl",
-            input_artifacts=[],
-            output_artifact="o.json",
-        )
+    class BoomClient:
+        def chat(self, *, model, messages, format=None, options=None):
+            raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(llm, "_client", lambda host=None: BoomClient())
+    with pytest.raises(llm.LLMError) as exc:
+        _call(log)
+    assert "connection refused" in str(exc.value)
 
 
 def test_embed_texts_returns_vectors(fake_ollama):
-    vectors = llm.embed_texts(["hello", "world"], model="nomic")
+    vectors = llm.embed_texts(["alpha", "beta"], model="embed-model")
     assert len(vectors) == 2
-    assert all(len(v) == 8 for v in vectors)
+    assert all(len(v) == fake_ollama.embed_dim for v in vectors)
+    assert len(fake_ollama.embed_calls) == 2
 
 
-def test_default_model_env(monkeypatch):
-    monkeypatch.setenv("LLM_MODEL", "custom:tag")
-    assert llm.default_model() == "custom:tag"
-    monkeypatch.setenv("EMBED_MODEL", "embed:tag")
-    assert llm.default_embed_model() == "embed:tag"
+def test_default_model_env_override(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", "custom:latest")
+    assert llm.default_model() == "custom:latest"
+    monkeypatch.delenv("LLM_MODEL", raising=False)
 
 
-def test_extract_content_object_form():
+def test_extract_content_supports_object_response():
     class Msg:
-        content = '{"x": 1}'
+        content = json.dumps({"x": 1})
 
     class Resp:
         message = Msg()

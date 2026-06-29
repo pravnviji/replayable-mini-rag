@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "replayable-mini-rag"
+version = "0.1.0"
+description = "Replayable, auditable mini RAG pipeline with deterministic retrieval and a human-review checkpoint."
+requires-python = ">=3.10"
+dependencies = [
+    "ollama>=0.4.0",
+    "pydantic>=2.6.0",
+    "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# Make ``src`` (and the repo root, for ``validate``) importable without
+# relying on sys.path manipulation in conftest.
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q"

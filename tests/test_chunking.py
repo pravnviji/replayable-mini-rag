@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from minirag.chunking import build_chunks, chunk_text
 
 
@@ -45,3 +47,21 @@ def test_chunk_offsets_match_source(tmp_path: Path):
     chunks = build_chunks(docs, size=12, overlap=3)
     for c in chunks:
         assert content[c.start_char:c.end_char] == c.text
+
+
+def test_build_chunks_rejects_oversized_document(tmp_path: Path, monkeypatch):
+    docs = tmp_path / "documents"
+    docs.mkdir()
+    (docs / "huge.txt").write_text("x" * 1000)
+    monkeypatch.setenv("MINIRAG_MAX_DOC_BYTES", "100")
+    with pytest.raises(ValueError, match="exceeding"):
+        build_chunks(docs, size=50, overlap=10)
+
+
+def test_build_chunks_size_guard_disabled(tmp_path: Path, monkeypatch):
+    docs = tmp_path / "documents"
+    docs.mkdir()
+    (docs / "big.txt").write_text("x" * 1000)
+    monkeypatch.setenv("MINIRAG_MAX_DOC_BYTES", "0")
+    chunks = build_chunks(docs, size=50, overlap=10)
+    assert chunks

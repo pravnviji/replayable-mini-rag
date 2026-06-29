@@ -151,6 +151,49 @@ INIT -> INPUTS_LOADED -> DOCUMENTS_CHUNKED -> INDEX_BUILT
 | `llm_calls.jsonl` | every LLM call |
 | `pipeline_state.json` | stage transition log |
 
+## Sample run (local, Ollama `llama3.2:1b`)
+
+The screenshot below is an actual local execution of `make run-auto` followed by
+`make validate` (lightweight `llama3.2:1b` model):
+
+![Sample run: make run-auto && make validate](output-sceenshot/sample_run.png)
+
+Transcript for reference:
+
+```text
+$ make clean && make run-auto
+rm -rf artifacts
+Removed artifacts/.
+.venv/bin/python run.py --auto-continue --model llama3.2:1b --embed-model nomic-embed-text
+[1/9] Inputs loaded: 4 queries, mode=keyword, model=llama3.2:1b
+[2/9] Chunked 3 chunks -> chunks.json
+[3/9] Index metadata -> index_metadata.json
+[4/9] Retrieval complete -> retrieval_results.json
+[5/9] Draft answers -> draft_answers.json
+[6/9] Human review complete -> review_overrides.json
+[7/9] Answers audited -> answer_audit.json
+[8/9] Final report -> final_report.md
+[9/9] Pipeline complete: RESULTS_FINALISED
+      (retrieval metrics skipped: no expected-evidence annotations)
+      (3 answer(s) regenerated after audit)
+
+$ make validate
+  ... (per-artifact and per-query PASS checks) ...
+  PASS  LLM log: 4 Stage-1 draft calls (one per query)
+  PASS  LLM log: 4 Stage-2 audit calls (one per query)
+  PASS  LLM log: revised-answer calls match revised_answers.json
+  PASS  Index: retrieval_mode recorded ('keyword')
+----------------------------------------------------
+  75 passed, 0 failed
+====================================================
+VALIDATION PASSED
+```
+
+> Note: `llama3.2:1b` is tiny and fast but produces weaker answer text; the
+> pipeline correctly catches low-quality drafts at the audit stage and
+> regenerates more conservative answers. A larger model (e.g. `llama3.1:8b`)
+> yields better answer content with identical pipeline behaviour.
+
 ## Validation
 
 ```bash
@@ -201,3 +244,7 @@ replayable-mini-rag/
     pipeline.py              # orchestration
   tests/                     # pytest unit tests
 ```
+
+
+### Ouput
+

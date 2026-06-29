@@ -6,7 +6,7 @@ VENV   ?= .venv
 PY      = $(VENV)/bin/python
 PIP     = $(VENV)/bin/pip
 
-LLM_MODEL   ?= llama3.1:8b
+LLM_MODEL   ?= llama3.2:1b
 EMBED_MODEL ?= nomic-embed-text
 
 .DEFAULT_GOAL := help
@@ -36,11 +36,11 @@ setup: $(VENV)
 
 .PHONY: run
 run:
-	$(PY) run.py
+	$(PY) run.py --model $(LLM_MODEL) --embed-model $(EMBED_MODEL)
 
 .PHONY: run-auto
 run-auto:
-	$(PY) run.py --auto-continue
+	$(PY) run.py --auto-continue --model $(LLM_MODEL) --embed-model $(EMBED_MODEL)
 
 .PHONY: validate
 validate:

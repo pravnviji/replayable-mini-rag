@@ -147,10 +147,30 @@ def embed_texts(
     model: str,
     host: str | None = None,
 ) -> list[list[float]]:
-    """Return embedding vectors for ``texts`` using Ollama."""
+    """Return embedding vectors for ``texts`` using Ollama.
+
+    Prefers a single batched request (one round-trip for the whole corpus)
+    when the client exposes the newer ``embed`` API, and falls back to the
+    per-text ``embeddings`` endpoint otherwise. Both paths are deterministic
+    for a fixed model, so retrieval stays reproducible.
+    """
+    if not texts:
+        return []
+
     client = _client(host)
     model = model or default_embed_model()
-    vectors: list[list[float]] = []
+
+    batch = getattr(client, "embed", None)
+    if callable(batch):
+        try:
+            resp = batch(model=model, input=texts)
+            vectors = _extract_embeddings_batch(resp)
+        except Exception:
+            vectors = None  # fall back to the per-text endpoint below
+        if vectors is not None and len(vectors) == len(texts):
+            return [list(v) for v in vectors]
+
+    vectors_out: list[list[float]] = []
     for text in texts:
         try:
             resp = client.embeddings(model=model, prompt=text)
@@ -159,8 +179,8 @@ def embed_texts(
                 f"Ollama embeddings call failed: {exc}. Is 'ollama serve' running "
                 f"and the model pulled (try: ollama pull {model})?"
             ) from exc
-        vectors.append(list(_extract_embedding(resp)))
-    return vectors
+        vectors_out.append(list(_extract_embedding(resp)))
+    return vectors_out
 
 
 def _extract_content(response) -> str:
@@ -175,3 +195,10 @@ def _extract_embedding(response):
     if isinstance(response, dict):
         return response["embedding"]
     return response.embedding
+
+
+def _extract_embeddings_batch(response):
+    """Pull a list of vectors from a batched ``embed`` response (dict or object)."""
+    if isinstance(response, dict):
+        return response.get("embeddings")
+    return getattr(response, "embeddings", None)

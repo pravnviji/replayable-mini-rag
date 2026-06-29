@@ -10,10 +10,26 @@ Chunk IDs are stable and human-readable: ``{document_stem}-{index:04d}``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .io_utils import list_txt_files, read_text, write_json
 from .schemas import Chunk
+
+# Per-document size cap (bytes) to bound memory use when ingesting the corpus.
+# Generous default so normal corpora are unaffected; override with the
+# ``MINIRAG_MAX_DOC_BYTES`` environment variable (0 disables the check).
+DEFAULT_MAX_DOC_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+
+def _max_doc_bytes() -> int:
+    raw = os.environ.get("MINIRAG_MAX_DOC_BYTES")
+    if raw is None:
+        return DEFAULT_MAX_DOC_BYTES
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_MAX_DOC_BYTES
 
 
 def chunk_text(
@@ -55,9 +71,18 @@ def build_chunks(
 ) -> list[Chunk]:
     """Read all ``.txt`` files (sorted) and produce a deterministic chunk list."""
     chunks: list[Chunk] = []
+    max_bytes = _max_doc_bytes()
     for doc_path in list_txt_files(documents_dir):
         document_name = doc_path.name
         stem = doc_path.stem
+        if max_bytes > 0:
+            size = doc_path.stat().st_size
+            if size > max_bytes:
+                raise ValueError(
+                    f"document {document_name!r} is {size} bytes, exceeding the "
+                    f"{max_bytes}-byte limit; raise or disable it via "
+                    f"MINIRAG_MAX_DOC_BYTES (0 disables)."
+                )
         text = read_text(doc_path)
         for i, (start, end, piece) in enumerate(
             chunk_text(text, size=size, overlap=overlap)

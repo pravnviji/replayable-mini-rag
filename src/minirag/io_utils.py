@@ -110,10 +110,32 @@ def _atomic_write_text(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
+            # Flush user-space and OS buffers to disk before the rename so a
+            # crash/power-loss right after os.replace cannot leave the target
+            # as a zero-length or partially written file.
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
+        _fsync_dir(directory)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def _fsync_dir(directory: str) -> None:
+    """fsync a directory so a rename into it is durable (best-effort)."""
+    try:
+        dir_fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        # Some platforms/filesystems (e.g. certain network mounts) disallow
+        # fsync on a directory; the rename itself is still atomic.
+        pass
+    finally:
+        os.close(dir_fd)
 
 
 def iter_lines(items: Iterable[str]) -> str:

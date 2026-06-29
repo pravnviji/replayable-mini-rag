@@ -1,0 +1,9 @@
+{
+  "overrides": [
+    {
+      "query_id": "Q3",
+      "chunk_ids": ["billing-0000"],
+      "note": "reviewer forced billing chunk as the only final context for the refund question"
+    }
+  ]
+}

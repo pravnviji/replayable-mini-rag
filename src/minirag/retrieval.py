@@ -57,23 +57,33 @@ class BM25Retriever:
                 counts[term] = counts.get(term, 0) + 1
             self.tf.append(counts)
 
-    def _idf(self, term: str) -> float:
-        n_qi = self.df.get(term, 0)
+        # Precompute IDF once per term. Previously this (and its ``math.log``)
+        # was recomputed for every (document, query-term) pair at score time,
+        # i.e. O(N_docs * query_terms) redundant log() calls per query.
+        self.idf: dict[str, float] = {
+            term: self._compute_idf(df) for term, df in self.df.items()
+        }
+
+    def _compute_idf(self, n_qi: int) -> float:
         # BM25 idf with +1 smoothing to keep values non-negative.
         return math.log(1 + (self.N - n_qi + 0.5) / (n_qi + 0.5))
+
+    def _idf(self, term: str) -> float:
+        return self.idf.get(term, self._compute_idf(self.df.get(term, 0)))
 
     def score(self, query_terms: list[str], doc_index: int) -> float:
         if self.avgdl == 0:
             return 0.0
         tf = self.tf[doc_index]
         dl = self.doc_len[doc_index]
+        len_norm = self.k1 * (1 - self.b + self.b * dl / self.avgdl)
         s = 0.0
         for term in query_terms:
-            if term not in tf:
+            freq = tf.get(term)
+            if not freq:
                 continue
-            freq = tf[term]
-            idf = self._idf(term)
-            denom = freq + self.k1 * (1 - self.b + self.b * dl / self.avgdl)
+            idf = self.idf[term]  # term is in tf => guaranteed present
+            denom = freq + len_norm
             s += idf * (freq * (self.k1 + 1)) / denom
         return s
 
